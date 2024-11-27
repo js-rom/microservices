@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.List;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,11 +17,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import es.edu.escuela_it.Miroservices.model.AccountDTO;
 import es.edu.escuela_it.Miroservices.model.UserDTO;
-
+import es.edu.escuela_it.Miroservices.validators.GroupValidatorOnCreate;
+import es.edu.escuela_it.Miroservices.validators.GroupValidatorOnUpdate;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 
 import org.springframework.hateoas.CollectionModel;
 import org.springframework.hateoas.Link;
@@ -71,7 +74,7 @@ public class UsersControllerRest {
 	}
 
 	@PostMapping
-	public ResponseEntity<String> createUser(@RequestBody UserDTO userDTO) {
+	public ResponseEntity<String> createUser(@Validated(value = GroupValidatorOnCreate.class) @RequestBody UserDTO userDTO) {
 
 		System.out.println("Creating user" + userDTO.getId());
 
@@ -82,7 +85,7 @@ public class UsersControllerRest {
 	}
 
 	@PutMapping
-	public ResponseEntity<UserDTO> updateUser(@RequestBody UserDTO userDTO) {
+	public ResponseEntity<UserDTO> updateUser(@Validated(value = GroupValidatorOnUpdate.class) @RequestBody UserDTO userDTO) {
 
 		System.out.println("Updating data");
 

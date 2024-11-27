@@ -16,5 +16,6 @@ public class HolaMundoRest {
 	public String saludo() {
 		System.out.println(this.appConfig.toString());
 		return "Hola Mundo servicio Rest Java";
+		
 	}
 }

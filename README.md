@@ -856,3 +856,480 @@ la respuesta quedaría así:
 
 ![alt text](./docs/image14.png)
 
+# Clase 3.
+## Indice.
+- Validación
+
+### Validacion
+Especificación: Bean Validation 2.0 (JSR 380)
+#### Validación. Setup.
+incluimos en el pom.xml la siguiente dependencia
+
+```xml
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
+```
+#### Validación. Anotaciones.
+![alt text](./docs/image17.png)
+![alt text](./docs/image18.png)
+
+#### Validación. Cómo usarlo.
+incorporamos en el modelo UserDTO las anotaciones/restricciones de cada atributo. Por ejemplo,
+indicamos que el atributo id no puede ser nulo con @NotNull:
+
+OJO!! en Java, los tipos de datos primitivos como **int** no pueden ser **null** ya que 
+siempre tienen un valor por defecto, en este caso de **0**. Si un campo de nuestro modelo 
+tuviese tipo int no podríamos validarlo con @NotNull ya que si enviamo un null en el body 
+automaticamente java va a poner el valor por defecto de 0. Asi que para validar que un campo
+integer no puede ser null debemos de usar el wrapper Integer que si admite valores null. 
+
+```java
+package es.edu.escuela_it.Miroservices.model;
+
+import java.time.LocalDate;
+
+import org.springframework.hateoas.RepresentationModel;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.AssertFalse;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.FutureOrPresent;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Past;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
+
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+@Schema(description = "Details about the user")
+public class UserDTO extends RepresentationModel<UserDTO> {
+	
+	
+	@Schema(description = "The unique ID of the user", example = "1", requiredMode = Schema.RequiredMode.REQUIRED)
+	@lombok.NonNull
+	@NotNull // jakarta.validation
+	private Integer id;
+	
+	@Schema(description = "Name of the user", example = "Jesús")
+	@lombok.NonNull
+	@NotBlank() // jakarta.validation
+	private String name;
+	
+	@Schema(description = "Last name of the user", example = "Romero")
+	@Size(min = 6, max = 20) // jakarta.validation
+	private String lastName;
+	
+	@Schema(description = "Age of the user", example = "33")
+	@ToString.Exclude
+	@NotNull // jakarta.validation
+	@Positive // jakarta.validation
+	@Min(18) // jakarta.validation
+	@Max(90) // jakarta.validation
+	private Integer age;
+	
+	@Email
+	private String email;
+	
+	@AssertTrue // jakarta.validation
+	// @AssertFalse // jakarta.validation
+	private boolean active;
+	
+	@Past // jakarta.validation
+	// @FutureOrPresent // jakarta.validation
+	private LocalDate birthday;
+	
+}
+```
+
+por otro lado, en el endpoint anotamos en el parámetro del método que va a recibir un
+JSON que se de validar con @Valid
+
+```java
+@PostMapping
+
+	public ResponseEntity<String> createUser(@Valid @RequestBody UserDTO userDTO) { //@Valid jakarta.validation
+
+		System.out.println("Creating user" + userDTO.getId());
+
+		URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(userDTO.getId())
+				.toUri();
+
+		return ResponseEntity.created(location).build();
+	}
+```
+
+Con estas validaciones si no enviamos un Json correcto el navegador nos devuelve
+un codigo de error 400 BAD REQUEST y Java imprime por consola un error de validación.
+Lo correcto es enviar al navegador un código de error lo más descriptivo posible
+para dar información al cliente que está consumiendo la API de qué campos ha introducido
+mal.
+
+#### Validación. Enviar mensajes de error en la respuesta http de los endpoints.
+
+En el siguiente apartado veremos como personalizar y externalizar estos mensajes pero,
+primero vamos a ver como **enviar mensajes de error en la respuesta http de los endpoints**.
+
+creamos un paquete errors y creamos una clase java con el siguiente código, que es el java necesario
+poder mostrar un mensaje de error en el cliente:
+```java
+package es.edu.escuela_it.Miroservices.errors;
+
+import java.util.List;
+import org.springframework.http.HttpStatus;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
+@Data
+@AllArgsConstructor
+public class ApiError {
+	private HttpStatus status;
+	private String message;
+	private List<String> errors;
+}
+```
+tambien necesitamos la siguiente clase que es la que va a interceptar los errores que se 
+produzcan en spring, va a popular la clase ApiError y reenvia 
+ApiError en la respuesta al cliente.
+
+```java
+package es.edu.escuela_it.Miroservices.errors;
+
+import java.util.ArrayList;
+import java.util.List;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.validation.ObjectError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+@ControllerAdvice
+public class CustomRestExceptionHandler extends ResponseEntityExceptionHandler {
+	
+	protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
+			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		List<String> errors = new ArrayList<String>();
+		for (FieldError error : ex.getBindingResult().getFieldErrors()) {
+			errors.add(error.getField() + ": " + error.getDefaultMessage());
+		}
+		for (ObjectError error : ex.getBindingResult().getGlobalErrors()) {
+			errors.add(error.getObjectName() + ": " + error.getDefaultMessage());
+		}
+		ApiError apiError = new ApiError(HttpStatus.BAD_REQUEST, ex.getMessage(), errors);
+		return handleExceptionInternal(ex, apiError, headers, apiError.getStatus(), request);
+	}
+}
+```
+
+Ahora en el cliente, en el body de la respuesta recibimos un array de errores en la llamada:
+
+```Json
+{
+    "status": "BAD_REQUEST",
+    "message": "Validation failed for argument [0] in public org.springframework.http.ResponseEntity<java.lang.String> es.edu.escuela_it.Miroservices.controller.UsersControllerRest.createUser(es.edu.escuela_it.Miroservices.model.UserDTO) with 3 errors: [Field error in object 'userDTO' on field 'age': rejected value [14]; codes [Min.userDTO.age,Min.age,Min.java.lang.Integer,Min]; arguments [org.springframework.context.support.DefaultMessageSourceResolvable: codes [userDTO.age,age]; arguments []; default message [age],18]; default message [debe ser mayor que o igual a 18]] [Field error in object 'userDTO' on field 'active': rejected value [false]; codes [AssertTrue.userDTO.active,AssertTrue.active,AssertTrue.boolean,AssertTrue]; arguments [org.springframework.context.support.DefaultMessageSourceResolvable: codes [userDTO.active,active]; arguments []; default message [active]]; default message [debe ser verdadero]] [Field error in object 'userDTO' on field 'email': rejected value [asdasd]; codes [Email.userDTO.email,Email.email,Email.java.lang.String,Email]; arguments [org.springframework.context.support.DefaultMessageSourceResolvable: codes [userDTO.email,email]; arguments []; default message [email],[Ljakarta.validation.constraints.Pattern$Flag;@3da2ca0b,.*]; default message [debe ser una dirección de correo electrónico con formato correcto]] ",
+    "errors": [
+        "age: debe ser mayor que o igual a 18",
+        "active: debe ser verdadero",
+        "email: debe ser una dirección de correo electrónico con formato correcto"
+    ]
+}
+```
+
+#### Validación. Personalizar y externalizar mensajes de error.
+
+A cada una de las anotaciones de validación podemos especificarles un mensaje de error para sobreescribir
+los mensajes por defecto que salen por consola, por ejemplo:
+
+```java
+@NotBlank(message = "Error, el nombre debe tener al menos un caracter")
+//....
+```
+Esta forma de pesonalizar los mensajes no es adecuada ya que estamos hardcodeando en el código los mensajes.
+Es buena práctica externalizarlos en un archivo .properties
+
+primero. Añadimo un nuevo archivo de configuración messages.properties
+
+incorporamos algunos claves-valor con mensajes en el archivo de cofiguracion:
+```
+app.field.birth_day.error=Fecha de cumple erronea
+app.field.active.error=Solo puede ser verdadero
+```
+
+segundo. Añadimos una nuva clase a configuration que leerá el archivo de configuración
+messages.properties y configurara el mensaje de cada campo
+
+```java
+package es.edu.escuela_it.Miroservices.configuration;
+
+import java.util.Locale;
+import org.springframework.context.MessageSource;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.support.ReloadableResourceBundleMessageSource;
+import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.servlet.i18n.LocaleChangeInterceptor;
+import org.springframework.web.servlet.i18n.SessionLocaleResolver;
+
+@Configuration
+public class ResourceMessageConfiguration implements WebMvcConfigurer {
+	/**
+	 * Establece un archivo de mensajes por default
+	 */
+	@Bean
+	public MessageSource messageSource() {
+		ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
+		messageSource.setBasename("classpath:messages");
+		messageSource.setDefaultEncoding("UTF-8");
+		return messageSource;
+	}
+
+	/*
+	 * Proporciona la posibilidad de que los mensajes de los validator accedan al
+	 * archivo de claves message
+	 */
+	@Bean
+	public LocalValidatorFactoryBean validator(MessageSource messageSource) {
+		LocalValidatorFactoryBean bean = new LocalValidatorFactoryBean();
+		bean.setValidationMessageSource(messageSource);
+		return bean;
+	}
+
+	/*
+	 * Establece un locale por default
+	 */
+	@Bean
+	public SessionLocaleResolver localeResolver() {
+		SessionLocaleResolver localeResolver = new SessionLocaleResolver();
+		localeResolver.setDefaultLocale(Locale.ENGLISH);
+		return localeResolver;
+	}
+
+	/*
+	 * Permite cambiar el local en cada llamada por el param lang
+	 */
+	@Bean
+	public LocaleChangeInterceptor localeChangeInterceptor() {
+		LocaleChangeInterceptor lci = new LocaleChangeInterceptor();
+		lci.setParamName("lang");
+		return lci;
+	}
+
+	@Override
+	public void addInterceptors(InterceptorRegistry registry) {
+		registry.addInterceptor(localeChangeInterceptor());
+	}
+}
+
+```
+
+tercero. En las anotaciones de validación de UserDTO indicamos la clave que contiene el mensaje,
+por ejemplo:
+
+```java
+	@AssertTrue(message="{app.field.active.error}") // jakarta.validation
+	// @AssertFalse // jakarta.validation
+	private boolean active;
+	
+	@Past(message="{app.field.birth_day.error}") // jakarta.validation
+	// @FutureOrPresent // jakarta.validation
+	private LocalDate birthday;
+```
+
+comprobamos como hemos sobreescrtio los mensaje por defecto desde un archivo externo
+en la respuesta de la llamada al end  point:
+```Json
+    "errors": [
+        "active: Solo puede ser verdadero",
+        "birthday: Fecha de cumple erronea"
+    ]
+```
+
+#### Validación. Internalización.
+
+El siguiente méto de ResourceMessageConfiguration es el que configura el idioma de los mensajes por defecto
+que no hallamos sobreescrito, en este caso inglés:
+
+```java
+	/*
+	 * Establece un locale por default
+	 */
+	@Bean
+	public SessionLocaleResolver localeResolver() {
+		SessionLocaleResolver localeResolver = new SessionLocaleResolver();
+		localeResolver.setDefaultLocale(Locale.ENGLISH);
+		return localeResolver;
+	}
+```
+
+El messages.properties debemos de escribirlo en inglés pues el message por defecto.
+Aunque es una buena práctica es tener un messages.properties por cada idioma que vamos a dar servicio
+con nuestra aplicación, por ejemplo messages_es.properties
+
+messages.properties
+```
+app.field.birth_day.error=Invalid Date
+app.field.active.error=Must be true
+```
+
+messages_es.properties
+```
+app.field.birth_day.error=Fecha invalida
+app.field.active.error=Debe ser verdadero
+```
+Si configuramos el Locale a "es" spring automaticamente cargará el archivo 
+messages_es.properties
+
+```java
+	/*
+	 * Establece un locale por default
+	 */
+	@Bean
+	public SessionLocaleResolver localeResolver() {
+		SessionLocaleResolver localeResolver = new SessionLocaleResolver();
+		localeResolver.setDefaultLocale(new Locale("es", "ES"));
+		return localeResolver;
+	}
+```
+
+si ponemos Locale.ENGLISH spring entiende que el fichero por defecto 
+para inglés es elque no tienen ninguna extensión, es decir messages.properties
+
+#### Validación. Custom Validators
+
+Para hacer nuestros validadores personalizados (p.ej: para validad dni español) necesitamos incorporar dos clases Java,
+una clase que va a ser la interfaz de anotación y otra clase que será el validador, la que provee 
+la lógica de como validar los campos que estén anotados con este custom validator. 
+
+primero. Creamos un paquete para los validadores .validators
+
+segundo. añadimos la interfaz CIF 
+```java
+package es.edu.escuela_it.Miroservices.validators;
+
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+import jakarta.validation.Constraint;
+import jakarta.validation.Payload;
+
+
+@Documented
+@Constraint(validatedBy = CIFValidator.class)
+@Target({ ElementType.FIELD })
+@Retention(RetentionPolicy.RUNTIME)
+public @interface CIF {
+	String message() default "Invalid CIF Number";
+
+	Class<?>[] groups() default {};
+
+	Class<? extends Payload>[] payload() default {};
+}
+
+```
+tercero. Añadimo la calse CIFValidator con la lógica de validación, que no sea null 
+y que tenga 9 carácteres:
+
+```java
+package es.edu.escuela_it.Miroservices.validators;
+
+import jakarta.validation.ConstraintValidator;
+import jakarta.validation.ConstraintValidatorContext;;
+
+public class CIFValidator implements ConstraintValidator<CIF, String> {
+	@Override
+	public boolean isValid(String value, ConstraintValidatorContext context) {
+		if (value == null) {
+			return false;
+		}
+		return value.length() == 9;
+	}
+}
+```
+
+procedemos a agregarle al UserDTO un campo CIF para 
+poder ponerle el nuevocustom validator que hemos creado:
+
+```java
+	@CIF
+	private String cif;
+```
+
+con esto, al hacer la llamada nos devuelve el error si no introducimos un CIF válido.
+
+#### Validación. Validación por grupos.
+
+A veces necesitamos que se validen ciertas cosas o no según el endpoint, por ejemplo 
+cuando creamos un usuario queremos que el campo active 
+sea true y cuando actualicemos un suario queremos que active sea false.
+
+primero. Creamos las interfaces de grupos de validación en .validators
+
+```java
+package es.edu.escuela_it.Miroservices.validators;
+
+public interface GroupValidatorOnUpdate {
+
+}
+```
+
+
+```java
+package es.edu.escuela_it.Miroservices.validators;
+
+public interface GroupValidatorOnCreate {
+
+}
+
+```
+
+segundo. Añadimos al campo en cuestión del modelo las anotaciones con su grupos
+```java
+	@AssertTrue(message="{app.field.active.error}", groups = GroupValidatorOnCreate.class) // jakarta.validation
+	@AssertFalse(groups = GroupValidatorOnUpdate.class) // jakarta.validation
+	private boolean active;
+```
+
+tercero. En cada endpoint cambiamos la anotacion de @Valid por @Validated 
+```java
+	@PostMapping
+	public ResponseEntity<String> createUser(@Validated(value = GroupValidatorOnCreate.class) @RequestBody UserDTO userDTO) {
+
+		System.out.println("Creating user" + userDTO.getId());
+
+		URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(userDTO.getId())
+				.toUri();
+
+		return ResponseEntity.created(location).build();
+	}
+
+	@PutMapping
+	public ResponseEntity<UserDTO> updateUser(@Validated(value = GroupValidatorOnUpdate.class) @RequestBody UserDTO userDTO) {
+
+		System.out.println("Updating data");
+
+		return ResponseEntity.ok(userDTO);
+	}
+```
+
+Ahotra dependiendo de a qué endpoint nos dirijamos se tendrán en cuenta unas validaciones u otras.
+OJOOO!! Al usar un grupo de validación en un endpoint todas las demás validaciones que tengamos
+si grupo dejarán de funcionar, es decir al introducir un grupo deberemos aplicar 
+grupos en todos los demás endpoints.
